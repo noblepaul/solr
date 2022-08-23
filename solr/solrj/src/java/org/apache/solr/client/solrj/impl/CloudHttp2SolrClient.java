@@ -22,7 +22,11 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
+
 import org.apache.solr.client.solrj.request.UpdateRequest;
+import org.apache.solr.cluster.api.RawRequest;
 import org.apache.solr.common.SolrException;
 
 /**
@@ -268,5 +272,16 @@ public class CloudHttp2SolrClient extends CloudSolrClient {
       }
       return new CloudHttp2SolrClient(this);
     }
+  }
+
+  public <T> RawRequest<T> createRequest() {
+    AtomicReference<RawCloudRequest<T>> ref= new AtomicReference<>();
+    ref.set(new RawCloudRequest<>(() -> _run(ref.get())));
+    return ref.get();
+  }
+  private <T> T _run(RawRequest<T> req) {
+
+    return null;
+
   }
 }

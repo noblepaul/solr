@@ -854,4 +854,9 @@ public class NamedList<T>
   public void forEachEntry(BiConsumer<String, ? super T> fun) {
     forEach(fun);
   }
+
+  public NamedList<T> append(String key, T val) {
+    add(key, val);
+    return this;
+  }
 }
