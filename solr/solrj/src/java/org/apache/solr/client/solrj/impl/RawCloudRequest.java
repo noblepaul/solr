@@ -23,7 +23,6 @@ import org.apache.solr.cluster.api.RawRequest;
 import org.apache.solr.common.util.NamedList;
 
 import java.net.URLEncoder;
-import java.util.Iterator;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
@@ -34,7 +33,7 @@ public class RawCloudRequest<T> implements RawRequest<T> {
   ApiType apiType = ApiType.V2;
   String node;
   String path = "";
-  ResponseListener<T> parser;
+  Parser<T> parser;
   Payload<T> payload;
   ParamsImpl params;
 
@@ -107,7 +106,7 @@ public class RawCloudRequest<T> implements RawRequest<T> {
   }
 
   @Override
-  public RawRequest<T> withParser(ResponseListener<T> parser) {
+  public RawRequest<T> withParser(Parser<T> parser) {
     parser.init(this);
     this.parser = parser;
     return this;
@@ -142,16 +141,13 @@ public class RawCloudRequest<T> implements RawRequest<T> {
     public Params add(String key, Iterable<String> vals) {
       if(vals != null) {
         key = URLEncoder.encode(key, UTF_8);
-        Iterator<String> it = vals.iterator();
-        while (it.hasNext()) {
-          String val = it.next();
-          if(val == null) continue;
+        for (String val : vals) {
+          if (val == null) continue;
           sb.append(key)
                   .append('&')
                   .append(URLEncoder.encode(val, UTF_8));
 
         }
-
       }
       return this;
     }

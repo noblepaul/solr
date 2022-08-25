@@ -22,14 +22,13 @@ import org.apache.solr.cloud.MiniSolrCloudCluster;
 import org.apache.solr.cloud.SolrCloudTestCase;
 import org.apache.solr.cluster.api.RawRequest;
 import org.apache.solr.common.NavigableObject;
+import org.apache.solr.common.util.Utils;
 
-import java.io.IOException;
-import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import static org.apache.solr.cluster.api.RawRequest.JAVABIN_PARSER;
 import static org.apache.solr.cluster.api.RawRequest.JSON_PARSER;
-import static org.apache.solr.common.params.CommonParams.*;
 
 public class RawRequestTest extends SolrCloudTestCase {
 
@@ -55,26 +54,13 @@ public class RawRequestTest extends SolrCloudTestCase {
             try (CloudSolrClient client = new CloudHttp2SolrClient.Builder(List.of(j.getBaseUrl().toString())).build()) {
                 verifyGet(j, client, JSON_PARSER);
                 verifyGet(j, client, JAVABIN_PARSER);
-
-              /*  client.<NavigableObject>createRawRequest()
-                        .withNode(j.getNodeName())
-                        .withPath("/c/coll1/shards")
-                        .withPayload(new RawRequest.Payload<NavigableObject>() {
-                            @Override
-                            public void accept(OutputStream os) throws IOException {
-
-                            }
-                        })
-                        .withParser(JSON_PARSER)
-                        .POST();*/
-
             }
         } finally {
             c.shutdown();
         }
     }
 
-    private void verifyGet(JettySolrRunner j, CloudSolrClient client, RawRequest.ResponseListener<NavigableObject> parser ) {
+    private void verifyGet(JettySolrRunner j, CloudSolrClient client, RawRequest.Parser<NavigableObject> parser ) {
         NavigableObject res = client.<NavigableObject>createRawRequest()
                 .withNode(j.getNodeName())
                 .withPath("/node/properties")

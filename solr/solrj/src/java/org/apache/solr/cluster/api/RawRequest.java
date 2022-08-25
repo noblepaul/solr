@@ -97,7 +97,7 @@ public interface RawRequest<T> {
      *
      * @param p This impl should consume an input stream and return an object
      */
-    RawRequest<T> withParser(ResponseListener<T> p);
+    RawRequest<T> withParser(Parser<T> p);
 
     /**
      * do an HTTP GET operation
@@ -143,7 +143,7 @@ public interface RawRequest<T> {
 
         void accept(OutputStream os) throws IOException;
     }
-    interface ResponseListener<T> {
+    interface Parser<T> {
         default void init(RawRequest<T> r){}
         /**
          * HTTP status code
@@ -157,7 +157,7 @@ public interface RawRequest<T> {
          */
         T accept(InputStream  is) throws IOException;
     }
-    ResponseListener<NavigableObject> JAVABIN_PARSER = new ResponseListener<>() {
+    Parser<NavigableObject> JAVABIN_PARSER = new Parser<>() {
         @Override
         public NavigableObject accept(InputStream is) throws IOException {
             return (NavigableObject) Utils.JAVABINCONSUMER.accept(is);
@@ -168,7 +168,7 @@ public interface RawRequest<T> {
             r.withParams(p -> p.add(CommonParams.WT, CommonParams.JAVABIN));
         }
     };
-    ResponseListener<NavigableObject> JSON_PARSER = new ResponseListener<>() {
+    Parser<NavigableObject> JSON_PARSER = new Parser<>() {
         @Override
         public void init(RawRequest<NavigableObject> r) {
             r.withParams(p -> p.add(CommonParams.WT, CommonParams.JSON));
