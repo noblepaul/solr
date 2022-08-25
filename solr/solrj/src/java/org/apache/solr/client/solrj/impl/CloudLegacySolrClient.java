@@ -26,6 +26,7 @@ import org.apache.http.NoHttpResponseException;
 import org.apache.http.client.HttpClient;
 import org.apache.http.conn.ConnectTimeoutException;
 import org.apache.solr.client.solrj.request.UpdateRequest;
+import org.apache.solr.cluster.api.RawRequest;
 import org.apache.solr.common.SolrException;
 import org.apache.solr.common.cloud.DocCollection;
 import org.apache.solr.common.cloud.DocRouter;
@@ -347,5 +348,10 @@ public class CloudLegacySolrClient extends CloudSolrClient {
     public Builder getThis() {
       return this;
     }
+  }
+
+  @Override
+  public <T> RawRequest<T> createRawRequest() {
+    throw new UnsupportedOperationException("Not yet implemented for Legacy cloud");
   }
 }

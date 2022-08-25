@@ -62,6 +62,7 @@ import org.apache.solr.client.solrj.request.V2Request;
 import org.apache.solr.client.solrj.routing.ReplicaListTransformer;
 import org.apache.solr.client.solrj.routing.RequestReplicaListTransformerGenerator;
 import org.apache.solr.client.solrj.util.ClientUtils;
+import org.apache.solr.cluster.api.RawRequest;
 import org.apache.solr.common.SolrException;
 import org.apache.solr.common.SolrInputDocument;
 import org.apache.solr.common.ToleratedUpdateError;
@@ -1435,4 +1436,5 @@ public abstract class CloudSolrClient extends SolrClient {
 
     return true;
   }
+  public abstract <T> RawRequest<T> createRawRequest();
 }

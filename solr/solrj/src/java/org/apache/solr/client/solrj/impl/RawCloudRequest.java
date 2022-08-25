@@ -17,36 +17,33 @@
 
 package org.apache.solr.client.solrj.impl;
 
-import java.io.IOException;
+import org.apache.solr.client.solrj.SolrRequest;
+import org.apache.solr.cluster.api.ApiType;
+import org.apache.solr.cluster.api.RawRequest;
+import org.apache.solr.common.util.NamedList;
+
 import java.net.URLEncoder;
 import java.util.Iterator;
 import java.util.function.Consumer;
 import java.util.function.Function;
-import java.util.function.Supplier;
-
-import org.apache.solr.client.solrj.SolrRequest;
-import org.apache.solr.cluster.api.ApiType;
-import org.apache.solr.cluster.api.RawRequest;
-import org.apache.solr.common.MapWriter;
-import org.apache.solr.common.cloud.Replica;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 public class RawCloudRequest<T> implements RawRequest<T> {
 
-  ApiType apiType;
+  ApiType apiType = ApiType.V2;
   String node;
-  String collection;
-  Locator locator;
-  String path;
-  Function<Response, T> parser;
+  String path = "";
+  ResponseListener<T> parser;
   Payload<T> payload;
   ParamsImpl params;
 
-  SolrRequest.METHOD method;
-  final Supplier<T> fun;
+  SolrRequest.METHOD method = SolrRequest.METHOD.GET;
+  private final Function<RawCloudRequest<T>, T> fun;
 
-  RawCloudRequest(Supplier<T> fun) {
+  NamedList<String> headers;
+
+  RawCloudRequest(Function<RawCloudRequest<T>, T> fun) {
     this.fun = fun;
   }
 
@@ -63,20 +60,9 @@ public class RawCloudRequest<T> implements RawRequest<T> {
   }
 
   @Override
-  public RawRequest<T> withCollection(String collection) {
-    this.collection = collection;
-    return this;
-  }
-
-  @Override
-  public RawRequest<T> withReplica(Consumer<ReplicaLocator> replicaLocator) {
-    locator = new Locator();
-    replicaLocator.accept(locator);
-    return this;
-  }
-
-  @Override
   public RawRequest<T> withHeader(String name, String val) {
+    if(headers == null) headers = new NamedList<>();
+    headers.add(name, val);
     return this;
   }
 
@@ -96,36 +82,42 @@ public class RawCloudRequest<T> implements RawRequest<T> {
   @Override
   public T GET() {
     this.method =  SolrRequest.METHOD.GET;
-    return fun.get();
+    return fun.apply(this);
+
   }
 
   @Override
   public T POST() {
     this.method = SolrRequest.METHOD.POST;
-    return fun.get();
+    return fun.apply(this);
   }
 
   @Override
   public T DELETE() {
     this.method = SolrRequest.METHOD.DELETE;
-    return fun.get();
+    return fun.apply(this);
+
   }
 
   @Override
   public T PUT() {
     this.method = SolrRequest.METHOD.PUT;
-    return fun.get();
+    return fun.apply(this);
+
   }
 
   @Override
-  public RawRequest<T> withParser(Function<Response, T> parser) {
+  public RawRequest<T> withParser(ResponseListener<T> parser) {
+    parser.init(this);
     this.parser = parser;
     return this;
   }
 
   @Override
   public RawRequest<T> withPayload(Payload<T> os) {
-    return null;
+    os.init(this);
+    this.payload = os;
+    return this;
   }
 
   static class ParamsImpl implements Params {
@@ -136,8 +128,9 @@ public class RawCloudRequest<T> implements RawRequest<T> {
         key = URLEncoder.encode(key, UTF_8);
         for (String val : vals) {
           if(val == null) continue;
+          if(sb.length() > 0) sb.append('&');
           sb.append(key)
-                  .append('&')
+                  .append('=')
                   .append(URLEncoder.encode(val, UTF_8));
 
         }
@@ -160,79 +153,6 @@ public class RawCloudRequest<T> implements RawRequest<T> {
         }
 
       }
-      return this;
-    }
-
-    @Override
-    public Params add(MapWriter mw) {
-      try {
-        mw.writeMap(new MapWriter.EntryWriter() {
-          @Override
-          public MapWriter.EntryWriter put(CharSequence k, Object v) {
-          if(k == null) return this;
-          if (v instanceof CharSequence) {
-              add(k.toString(), v.toString());
-            } else if(v instanceof Iterable) {
-             Iterable<?> i = (Iterable<?>) v;
-              for (Object o : i) {
-                if (o != null) {
-                  add(k.toString(), (o).toString());
-                }
-              }
-            } else {
-              throw new IllegalArgumentException("unknown type : "+v);
-            }
-
-          return this;
-          }
-        });
-      } catch (IOException e) {
-        throw new RuntimeException(e);
-      }
-      return this;
-    }
-  }
-  static class Locator implements ReplicaLocator {
-    String replica;
-    String shardKey;
-    String shardName;
-    boolean onlyLeader = false;
-    boolean onlyFollower = false;
-    Replica.Type replicaType;
-
-    @Override
-    public ReplicaLocator replicaName(String replicaName) {
-      this.replica = replicaName;
-      return this;
-    }
-
-    @Override
-    public ReplicaLocator shardKey(String key) {
-      this.shardKey = key;
-      return  this;
-    }
-
-    @Override
-    public ReplicaLocator shardName(String shardName) {
-      this.shardName = shardName;
-      return this;
-    }
-
-    @Override
-    public ReplicaLocator onlyLeader() {
-      this.onlyLeader = true;
-      return this;
-    }
-
-    @Override
-    public ReplicaLocator onlyFollower() {
-      this.onlyFollower = true;
-      return this;
-    }
-
-    @Override
-    public ReplicaLocator replicaType(Replica.Type type) {
-      this.replicaType = type;
       return this;
     }
   }

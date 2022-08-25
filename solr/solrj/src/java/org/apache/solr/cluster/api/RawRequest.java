@@ -17,13 +17,14 @@
 
 package org.apache.solr.cluster.api;
 
+import org.apache.solr.common.NavigableObject;
+import org.apache.solr.common.params.CommonParams;
+import org.apache.solr.common.util.Utils;
+
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.util.Iterator;
 import java.util.function.Consumer;
-import java.util.function.Function;
-import org.apache.solr.common.MapWriter;
-import org.apache.solr.common.cloud.Replica;
 
 /**
  * A plain interface that captures all inputs for a Solr request. As the name suggests, it lets
@@ -45,7 +46,7 @@ import org.apache.solr.common.cloud.Replica;
  * <T> T deserializeJackson(InputStream in, Class<T> c) {
  *       //code to deserialize an object from jackson (or you may use your favorite library)
  *   }
- *  CloudHttp2SolrClient client = null;
+ *  CloudolrClient client = null; // do initialization here
  *  C c = client.<C>createRequest()
  *                  .withNode("nodeName")
  *                  .withPath("/admin/metrics")
@@ -56,16 +57,6 @@ import org.apache.solr.common.cloud.Replica;
  *                          .add("wt", "json"))
  *             .GET();
  *
- *  client.<C>createRequest()
- *             .withCollection("coll-name")
- *             .withReplica(r ->
- *                     r.shardKey("id1234")
- *                     .onlyLeader())
- *             .withPath("/update/json")
- *             .withParser(in -> deserializeJackson(in.stream(), C.class))
- *             .withPayload(os -> serializeJackson(os.stream(), new D());)
- *             .withParams(p-> p.add(CommonParams.OMIT_HEADER, CommonParams.TRUE))
- *             .POST();
  *
  *
  *
@@ -75,7 +66,7 @@ import org.apache.solr.common.cloud.Replica;
  */
 public interface RawRequest<T> {
 
-    /** Use /solr or /api end points */
+    /** Use /solr or /api end points default is /api (a.k.a V2 API*/
     RawRequest<T> withApiType(ApiType apiType);
 
     /**
@@ -85,19 +76,10 @@ public interface RawRequest<T> {
      */
     RawRequest<T> withNode(String node);
 
-    RawRequest<T> withReplica(Consumer<ReplicaLocator> replicaLocator);
-    /**
-     * Make a request to a specific collection
-     *
-     * @param collection collection name
-     */
-    RawRequest<T> withCollection(String collection);
-
     RawRequest<T> withHeader(String name, String val);
 
     /**
-     * The path to which the request needs to be made eg: /update , /admin/metrics etc. The actual
-     * path depends on whether a collection is specified or not
+     * The path to which the request needs to be made eg:  /admin/metrics  etc.
      *
      * @param path The path
      */
@@ -113,9 +95,9 @@ public interface RawRequest<T> {
      * Parse and deserialize a concrete object . If this is not supplied, the response is just eaten
      * up and thrown away
      *
-     * @param parser This impl should consume an input stream and return an object
+     * @param p This impl should consume an input stream and return an object
      */
-    RawRequest<T> withParser(Function<Response, T> parser);
+    RawRequest<T> withParser(ResponseListener<T> p);
 
     /**
      * do an HTTP GET operation
@@ -154,66 +136,47 @@ public interface RawRequest<T> {
 
         Params add(String key, Iterable<String> vals);
 
-        Params add(MapWriter mw);
     }
 
-    interface Payload<T> extends Consumer<OutputStream> {
+    interface Payload<T> {
         default void init(RawRequest<T> r){}
+
+        void accept(OutputStream os) throws IOException;
     }
-    interface Response {
+    interface ResponseListener<T> {
+        default void init(RawRequest<T> r){}
         /**
          * HTTP status code
          */
-        int status();
+        default void status(int status) {}
+        default boolean listenHeaders() { return false;}
 
+       default boolean header(String key, String val) {return false;}
         /**
-         * Header names
+         * Consume the stream sent by server
          */
-        Iterator<String> headerNames();
-
-        /**
-         * Get a header value.
-         */
-        String getHeader(String s);
-
-        /**
-         * The actual input stream sent by the server
-         */
-        InputStream stream();
+        T accept(InputStream  is) throws IOException;
     }
+    ResponseListener<NavigableObject> JAVABIN_PARSER = new ResponseListener<>() {
+        @Override
+        public NavigableObject accept(InputStream is) throws IOException {
+            return (NavigableObject) Utils.JAVABINCONSUMER.accept(is);
+        }
 
-    interface ReplicaLocator {
-        /**
-         * We know the exact replica of the collection to which the request needs to be sent
-         *
-         * @param replicaName the name of the replica
-         */
-        ReplicaLocator replicaName(String replicaName);
+        @Override
+        public void init(RawRequest<NavigableObject> r) {
+            r.withParams(p -> p.add(CommonParams.WT, CommonParams.JAVABIN));
+        }
+    };
+    ResponseListener<NavigableObject> JSON_PARSER = new ResponseListener<>() {
+        @Override
+        public void init(RawRequest<NavigableObject> r) {
+            r.withParams(p -> p.add(CommonParams.WT, CommonParams.JSON));
+        }
 
-        /**
-         * We do not know the name of the shard. Let the system hash the key and find out the shard
-         *
-         * @param key the routing key. usually the id of the doc
-         */
-        ReplicaLocator shardKey(String key);
-        /**
-         * The shard to which the replica is to be sent
-         *
-         * @param shardName name of the shard
-         */
-        ReplicaLocator shardName(String shardName);
-
-        /** Always chose the leader */
-        ReplicaLocator onlyLeader();
-
-        /** Send to a replica that is not a leader */
-        ReplicaLocator onlyFollower();
-
-        /**
-         * Send this request to a specific replica type
-         *
-         * @param type replica type
-         */
-        ReplicaLocator replicaType(Replica.Type type);
-    }
+        @Override
+        public NavigableObject accept(InputStream is) throws IOException {
+            return (NavigableObject) Utils.fromJSON(is, Utils.MAPWRITEROBJBUILDER);
+        }
+    };
 }

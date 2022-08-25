@@ -18,12 +18,7 @@
 package org.apache.solr.client.solrj.impl;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.List;
-import java.util.Optional;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Supplier;
+import java.util.*;
 
 import org.apache.solr.client.solrj.request.UpdateRequest;
 import org.apache.solr.cluster.api.RawRequest;
@@ -274,14 +269,15 @@ public class CloudHttp2SolrClient extends CloudSolrClient {
     }
   }
 
-  public <T> RawRequest<T> createRequest() {
-    AtomicReference<RawCloudRequest<T>> ref= new AtomicReference<>();
-    ref.set(new RawCloudRequest<>(() -> _run(ref.get())));
-    return ref.get();
-  }
-  private <T> T _run(RawRequest<T> req) {
-
-    return null;
-
-  }
+    @Override
+    public <T> RawRequest<T> createRawRequest() {
+        return new RawCloudRequest<T>(r -> {
+          try {
+            return RawRequestUtils.executeJettyClientRequest(CloudHttp2SolrClient.this,
+                    myClient.getHttpClient(), r);
+          } catch (IOException e) {
+            throw new SolrException(SolrException.ErrorCode.SERVER_ERROR, e);
+          }
+        });
+    }
 }
