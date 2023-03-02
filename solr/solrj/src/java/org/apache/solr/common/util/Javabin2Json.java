@@ -16,7 +16,9 @@
  */
 package org.apache.solr.common.util;
 
+import java.io.DataInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.Writer;
 import java.util.ArrayList;
 import java.util.List;
@@ -25,12 +27,12 @@ public class Javabin2Json {
     static byte VERSION = 2;
     byte tagByte;
 
-    byte[] bytes;
-    char[] charArr = new char[0];
+    byte[] bytes = new byte[1024];
+    char[] charArr = new char[1024];
     int charArrEnd = 0;
 
 
-    final DataInputInputStream is;
+    final DataInputStream is;
     final Writer os;
     private List<String> stringsList;
 
@@ -68,8 +70,8 @@ public class Javabin2Json {
             NAMED_LST = (byte) (6 << 5), // NamedList
             EXTERN_STRING = (byte) (7 << 5);
 
-    public Javabin2Json(DataInputInputStream is, Writer os) {
-        this.is = is;
+    public Javabin2Json(InputStream is, Writer os) {
+        this.is = new DataInputStream(is);
         this.os = os;
     }
 
@@ -188,7 +190,11 @@ public class Javabin2Json {
 
     private String _readStr(int sz)
             throws IOException {
+        if(bytes.length<sz) {
+            bytes = new byte[sz*2];
+        }
         is.readFully(bytes, 0, sz);
+        if(charArr.length < sz) charArr = new char[sz *2];
         charArrEnd = UTF8toUTF16(bytes, 0, sz, charArr, 0);
         return new String(charArr, 0, charArrEnd);
     }
@@ -221,7 +227,7 @@ public class Javabin2Json {
 
 
     private void writeJsonArr(int sz) throws IOException {
-        os.append('[').append('\n');
+        os.append('[');
         for (int i = 0; sz == -1 || i < sz; i++) {
             if (i > 0) {
                 os.write(" , ");
@@ -230,18 +236,19 @@ public class Javabin2Json {
             if (tagByte == END) break;
             readObject();
         }
-        os.append('}');
-        os.append('\n');
+        os.append(']');
     }
 
     private void writeJsonObj(int sz) throws IOException {
         os.append('{');
-        os.append('\n');
         for (int i = 0; sz == -1 || i < sz; i++) {
             if (i > 0) {
                 os.write(" , ");
             }
             if (!readKey() && sz == -1) break;
+            os.append(' ');
+            os.append(':');
+            os.append(' ');
             readVal();
         }
         os.append('}');
@@ -328,20 +335,25 @@ public class Javabin2Json {
                 os.write(String.valueOf(is.readShort()));
                 return;
             }
-            case MAP:
+            case MAP: {
                 writeJsonObj(readVInt());
-            case SOLRDOC:
+                return;
+            }
+            case SOLRDOC:{
                 tagByte = is.readByte();
                 int size = readSize();
                 writeJsonObj(size);
 
-            case SOLRDOCLST:
+                return;}
+            case SOLRDOCLST: {
                 tagByte = is.readByte();
                 int sz = readSize();
-                for (int i = 0;  i < sz; i++) {
+                for (int i = 0; i < sz; i++) {
                     readKey();
                     readVal();
                 }
+                return;
+            }
     /*case BYTEARR:
                 return readByteArray(dis);*/
             case ITERATOR:
@@ -357,6 +369,7 @@ public class Javabin2Json {
                 return readMapEntry(dis);*/
             case MAP_ENTRY_ITER: {
                 writeJsonObj(-1);
+                return;
             }
         }
 

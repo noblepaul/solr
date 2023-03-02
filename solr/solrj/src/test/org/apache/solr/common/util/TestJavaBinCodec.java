@@ -23,6 +23,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.StringWriter;
 import java.lang.invoke.MethodHandles;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -34,6 +35,7 @@ import java.util.Random;
 import org.apache.commons.io.IOUtils;
 import org.apache.lucene.tests.util.TestUtil;
 import org.apache.solr.SolrTestCaseJ4;
+import org.apache.solr.client.solrj.impl.BinaryRequestWriter;
 import org.apache.solr.common.EnumFieldValue;
 import org.apache.solr.common.SolrDocument;
 import org.apache.solr.common.SolrDocumentList;
@@ -469,6 +471,28 @@ public class TestJavaBinCodec extends SolrTestCaseJ4 {
     bos = new BufferedOutputStream(fs);
     bos.write(getBytes(sdoc));
     bos.close();
+  }
+
+  @Test
+  public void testJavabin2Json() throws IOException {
+    String sampleObj =
+            "{k : v , "
+                    + "mapk : {k1: v1, k2 : [v2_1 , v2_2 ]},"
+                    + "listk : [ 1, 2, 3 ],"
+                    + "maps : [ {id: kov1}, {id : kov2} ,{id:kov3 , longv : 234} ],"
+                    + "}";
+
+    @SuppressWarnings({"rawtypes"})
+    Map m = (Map) Utils.fromJSONString(sampleObj);
+    BinaryRequestWriter.BAOS baos = new BinaryRequestWriter.BAOS();
+    try (JavaBinCodec jbc = new JavaBinCodec()) {
+      jbc.marshal(m, baos);
+    }
+    StringWriter sw = new StringWriter();
+
+    new Javabin2Json(new ByteArrayInputStream(baos.toByteArray()), sw).decode();
+    System.out.println(sw.toString());
+
   }
 
   private void testPerf() throws InterruptedException {
