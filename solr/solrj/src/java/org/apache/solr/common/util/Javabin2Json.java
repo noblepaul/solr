@@ -16,7 +16,6 @@
  */
 package org.apache.solr.common.util;
 
-import java.io.DataInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Writer;
@@ -24,19 +23,19 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class Javabin2Json {
-    static byte VERSION = 2;
-    byte tagByte;
+    public static byte VERSION = 2;
+    public byte tagByte;
 
-    byte[] bytes = new byte[1024];
-    char[] charArr = new char[1024];
-    int charArrEnd = 0;
+    public byte[] bytes = new byte[1024];
+    public char[] charArr = new char[1024];
+    public int charArrEnd = 0;
 
 
-    final DataInputStream is;
-    final Writer os;
-    private List<String> stringsList;
+    public  SimpleInputStream is;
+    public  Writer os;
+    public List<String> stringsList;
 
-    static final byte NULL = 0,
+    public static final byte NULL = 0,
             BOOL_TRUE = 1,
             BOOL_FALSE = 2,
             BYTE = 3,
@@ -49,16 +48,12 @@ public class Javabin2Json {
             MAP = 10,
             SOLRDOC = 11,
             SOLRDOCLST = 12,
-            BYTEARR = 13,
             ITERATOR = 14,
     /**
      * this is a special tag signals an end. No value is associated with it
      */
     END = 15,
-            SOLRINPUTDOC = 16,
             MAP_ENTRY_ITER = 17,
-            ENUM_FIELD_VALUE = 18,
-            MAP_ENTRY = 19,
             UUID = 20, // This is reserved to be used only in LogCodec
     // types that combine tag + length (or other info) in a single byte
     TAG_AND_LEN = (byte) (1 << 5),
@@ -71,10 +66,34 @@ public class Javabin2Json {
             EXTERN_STRING = (byte) (7 << 5);
 
     public Javabin2Json(InputStream is, Writer os) {
-        this.is = new DataInputStream(is);
+        this.is = new SimpleInputStream(is);
         this.os = os;
     }
 
+    public  boolean isContainer()  {
+        switch (tagByte >>> 5) {
+            case ARR >>> 5:
+            case ORDERED_MAP >>> 5:
+            case NAMED_LST >>> 5: return true;
+        }
+
+        switch (tagByte) {
+            case MAP:
+            case SOLRDOC:
+            case SOLRDOCLST:
+            case MAP_ENTRY_ITER:
+            case ITERATOR: return true;
+        }
+        return false;
+    }
+    public boolean isKey()  {
+        switch (tagByte >>> 5) {
+            case EXTERN_STRING >>> 5:
+            case STR >>> 5: return true;
+        }
+        switch (tagByte ) {case NULL: return true;}
+        return false;
+    }
 
     public void decode() throws IOException {
         int version = is.readByte();
@@ -88,84 +107,50 @@ public class Javabin2Json {
         }
 
         tagByte = is.readByte();
-        if (!readContainer()) throw new RuntimeException("Inavalid Object type");
-    }
-
-    private boolean readContainer() throws IOException {
-        switch (tagByte >>> 5) {
-            case ARR >>> 5:
-                writeJsonArr(readSize());
-                return true;
-            case ORDERED_MAP >>> 5: {
-                writeJsonObj(readSize());
-                return true;
-            }
-            case NAMED_LST >>> 5: {
-                writeJsonObj(readSize());
-                return true;
-            }
-        }
-
-        switch (tagByte) {
-            case MAP:
-                writeJsonObj(readVInt());
-                return true;
-            case SOLRDOC:
-                tagByte = is.readByte();
-                writeJsonObj(readSize());
-                return true;
-            case SOLRDOCLST:
-                tagByte = is.readByte();
-                int sz = readSize();
-                for (int i = 0;  i < sz; i++) {
-                    readVal();
-                }
-                tagByte = is.readByte();
-                writeJsonObj(readSize());
-                return true;
-            case MAP_ENTRY_ITER:
-                writeJsonObj(-1);
-                return true;
-            case ITERATOR:
-                writeJsonArr(-1);
-                return true;
-        }
-        return false;
+        if (!isContainer()) throw new RuntimeException("Invalid Object type");
+        readObject();
     }
 
 
-    void writeJsonStr(String s) throws IOException {
-        os.append('"');
-        os.write(s);
-        os.append('"');
+    public String _readStr(int sz) {
+        if(bytes.length<sz) {
+            bytes = new byte[sz*2];
+        }
+        is.readFully(bytes, 0, sz);
+        if(charArr.length < sz) charArr = new char[sz *2];
+        charArrEnd = UTF8toUTF16(bytes, 0, sz, charArr, 0);
+        return new String(charArr, 0, charArrEnd);
+    }
+
+    public int readSize() {
+        int sz = tagByte & 0x1f;
+        if (sz == 0x1f) sz += readVInt();
+        return sz;
+    }
+
+    public int readVInt() {
+        byte b = is.readByte();
+        int i = b & 0x7F;
+        for (int shift = 7; (b & 0x80) != 0; shift += 7) {
+            b = is.readByte();
+            i |= (b & 0x7F) << shift;
+        }
+        return i;
+    }
+
+    public long readVLong() throws IOException {
+        byte b = is.readByte();
+        long i = b & 0x7F;
+        for (int shift = 7; (b & 0x80) != 0; shift += 7) {
+            b = is.readByte();
+            i |= (long) (b & 0x7F) << shift;
+        }
+        return i;
     }
 
 
-    boolean readKey() throws IOException {
-        tagByte = is.readByte();
-        switch (tagByte >>> 5) {
-            case EXTERN_STRING >>> 5: {
-                readExternString();
-                return true;
-            }
-            case STR >>> 5: {
-                readStr();
-                return true;
-            }
-        }
-        switch (tagByte ) {
-            case NULL: {
-                os.write("null");
-                return true;
-            }
-            case END: {
-                return false;
-            }
-        }
-        throw new RuntimeException("Invalid key type");
-    }
 
-    public String readExternString() throws IOException {
+    public String readExternString() {
         int idx = readSize();
         if (idx != 0) { // idx != 0 is the index of the extern string
             String s = stringsList.get(idx - 1);
@@ -180,53 +165,7 @@ public class Javabin2Json {
         }
     }
 
-    private String readStr() throws IOException {
-        int sz = readSize();
-        String s = _readStr(sz);
-        writeJsonStr(s);
-        return s;
-    }
-
-
-    private String _readStr(int sz)
-            throws IOException {
-        if(bytes.length<sz) {
-            bytes = new byte[sz*2];
-        }
-        is.readFully(bytes, 0, sz);
-        if(charArr.length < sz) charArr = new char[sz *2];
-        charArrEnd = UTF8toUTF16(bytes, 0, sz, charArr, 0);
-        return new String(charArr, 0, charArrEnd);
-    }
-
-    public int readSize() throws IOException {
-        int sz = tagByte & 0x1f;
-        if (sz == 0x1f) sz += readVInt();
-        return sz;
-    }
-
-    public int readVInt() throws IOException {
-        byte b = is.readByte();
-        int i = b & 0x7F;
-        for (int shift = 7; (b & 0x80) != 0; shift += 7) {
-            b = is.readByte();
-            i |= (b & 0x7F) << shift;
-        }
-        return i;
-    }
-
-    long readVLong() throws IOException {
-        byte b = is.readByte();
-        long i = b & 0x7F;
-        for (int shift = 7; (b & 0x80) != 0; shift += 7) {
-            b = is.readByte();
-            i |= (long) (b & 0x7F) << shift;
-        }
-        return i;
-    }
-
-
-    private void writeJsonArr(int sz) throws IOException {
+    public void writeJsonArr(int sz) throws IOException {
         os.append('[');
         for (int i = 0; sz == -1 || i < sz; i++) {
             if (i > 0) {
@@ -239,13 +178,18 @@ public class Javabin2Json {
         os.append(']');
     }
 
-    private void writeJsonObj(int sz) throws IOException {
+    public void writeJsonObj(int sz) throws IOException {
         os.append('{');
         for (int i = 0; sz == -1 || i < sz; i++) {
             if (i > 0) {
                 os.write(" , ");
             }
-            if (!readKey() && sz == -1) break;
+            tagByte = is.readByte();
+            if(!isKey()) {
+                throw  new RuntimeException("Not a valid Key");
+            }
+            if(tagByte == END && sz == -1) break;
+            readObject();
             os.append(' ');
             os.append(':');
             os.append(' ');
@@ -261,7 +205,79 @@ public class Javabin2Json {
         readObject();
     }
 
-    protected void readObject() throws IOException {
+    public boolean writePrimitive() throws IOException {
+        switch (tagByte) {
+            case NULL: {
+                os.write("null");
+                return true;
+            }
+            case DATE: {
+                os.write(String.valueOf(is.readLong()));
+                return true;
+
+            }
+            case INT:
+                os.write(is.readInt());
+                return true;
+
+            case BOOL_TRUE:
+                os.write("true");
+                return true;
+
+            case BOOL_FALSE:
+                os.write("false");
+                return true;
+
+            case FLOAT:
+                os.write(String.valueOf(is.readFloat()));
+                return true;
+
+            case DOUBLE:
+                os.write(String.valueOf(is.readDouble()));
+                return true;
+
+            case LONG:
+                os.write(String.valueOf(is.readLong()));
+                return true;
+
+            case BYTE: {
+                os.write(String.valueOf(is.readByte()));
+                return true;
+            }
+            case SHORT: {
+                os.write(String.valueOf(is.readShort()));
+                return true;
+
+            }
+        }
+        return false;
+    }
+
+
+    public void writeSmallInt() throws IOException {
+        int v = tagByte & 0x0F;
+        if ((tagByte & 0x10) != 0) v = (readVInt() << 4) | v;
+        os.write(v);
+    }
+
+    public void writeLong() throws IOException {
+        long v = tagByte & 0x0F;
+        if ((tagByte & 0x10) != 0) v = (readVLong() << 4) | v;
+        os.write(String.valueOf(v));
+    }
+
+
+    public void writeDocList() throws IOException {
+        tagByte = is.readByte();
+        int sz = readSize();
+        for (int i = 0;  i < sz; i++) {
+            readVal();
+        }
+        tagByte = is.readByte();
+        writeJsonObj(readSize());
+    }
+
+    public  void readObject()  throws IOException{
         // if ((tagByte & 0xe0) == 0) {
         // if top 3 bits are clear, this is a normal tag
 
@@ -272,24 +288,17 @@ public class Javabin2Json {
                 return;
             }
             case SINT >>> 5: {
-                int v = tagByte & 0x0F;
-                if ((tagByte & 0x10) != 0) v = (readVInt() << 4) | v;
-                os.write(v);
+                writeSmallInt();
                 return;
             }
             case SLONG >>> 5:
-                long v = tagByte & 0x0F;
-                if ((tagByte & 0x10) != 0) v = (readVLong() << 4) | v;
-                os.write(String.valueOf(v));
+                writeLong();
                 return;
             case ARR >>> 5: {
                 writeJsonArr(readSize());
                 return;
             }
-            case ORDERED_MAP >>> 5: {
-                writeJsonObj(readSize());
-                return;
-            }
+            case ORDERED_MAP >>> 5:
             case NAMED_LST >>> 5: {
                 writeJsonObj(readSize());
                 return;
@@ -299,42 +308,8 @@ public class Javabin2Json {
                 return;
             }
         }
-
+        if(writePrimitive()) return;
         switch (tagByte) {
-            case NULL: {
-                os.write("null");
-                return;
-            }
-            case DATE: {
-                os.write(String.valueOf(is.readLong()));
-                return;
-            }
-            case INT:
-                os.write(is.readInt());
-                return;
-            case BOOL_TRUE:
-                os.write("true");
-                return ;
-            case BOOL_FALSE:
-                os.write("false");
-                return ;
-            case FLOAT:
-                os.write(String.valueOf(is.readFloat()));
-                return ;
-            case DOUBLE:
-                os.write(String.valueOf(is.readDouble()));
-                return ;
-            case LONG:
-                os.write(String.valueOf(is.readLong()));
-                return;
-            case BYTE: {
-                os.write(String.valueOf(is.readByte()));
-                return;
-            }
-            case SHORT: {
-                os.write(String.valueOf(is.readShort()));
-                return;
-            }
             case MAP: {
                 writeJsonObj(readVInt());
                 return;
@@ -346,27 +321,13 @@ public class Javabin2Json {
 
                 return;}
             case SOLRDOCLST: {
-                tagByte = is.readByte();
-                int sz = readSize();
-                for (int i = 0; i < sz; i++) {
-                    readKey();
-                    readVal();
-                }
+                writeDocList();
                 return;
             }
-    /*case BYTEARR:
-                return readByteArray(dis);*/
             case ITERATOR:
                 writeJsonArr(-1);
                 return;
-            case END:
-                return;
-       /*     case SOLRINPUTDOC:
-                return readSolrInputDocument(dis);
-            case ENUM_FIELD_VALUE:
-                return readEnumFieldValue(dis);
-            case MAP_ENTRY:
-                return readMapEntry(dis);*/
+            case END: return;
             case MAP_ENTRY_ITER: {
                 writeJsonObj(-1);
                 return;
@@ -374,6 +335,21 @@ public class Javabin2Json {
         }
 
         throw new RuntimeException("Unknown type " + tagByte);
+    }
+    void writeJsonStr(String s) {
+        try {
+            os.append('"');
+            os.write(s);
+            os.append('"');
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+    public String readStr()  {
+        int sz = readSize();
+        String s = _readStr(sz);
+        writeJsonStr(s);
+        return s;
     }
 
     public static int UTF8toUTF16(byte[] utf8, int offset, int len, char[] out, int out_offset) {
@@ -411,4 +387,5 @@ public class Javabin2Json {
 
         return out_offset - out_start;
     }
+
 }
